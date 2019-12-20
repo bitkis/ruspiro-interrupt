@@ -4,7 +4,7 @@
  * Author: André Borrmann
  * License: Apache License 2.0
  **********************************************************************************************************************/
-#![doc(html_root_url = "https://docs.rs/ruspiro-interrupt/0.3.0")]
+#![doc(html_root_url = "https://docs.rs/ruspiro-interrupt/0.3.1")]
 #![no_std]
 #![feature(asm)]
 #![feature(linkage)]
@@ -109,7 +109,6 @@ impl InterruptManager {
         self.enabled[irq_bank as usize] |= 1 << (irq_num & 0x1F);
 
         interface::activate(irq_bank, irq_num);
-        //println!("enabled Irq's: {:X}, {:X}, {:X}", self.enabled[0], self.enabled[1], self.enabled[2]);
         #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
         unsafe {
             asm!("dmb sy")
@@ -266,31 +265,31 @@ fn interrupt_handler() {
 
     if active[1] != 0 {
         // IRQ Bank 2
-        if active[1] & (1 << 49 - 32) != 0 {
+        if active[1] & (1 << (49 - 32)) != 0 {
             __irq_handler__GpioBank0()
         }
-        if active[1] & (1 << 50 - 32) != 0 {
+        if active[1] & (1 << (50 - 32)) != 0 {
             __irq_handler__GpioBank1()
         }
-        if active[1] & (1 << 51 - 32) != 0 {
+        if active[1] & (1 << (51 - 32)) != 0 {
             __irq_handler__GpioBank2()
         }
-        if active[1] & (1 << 52 - 32) != 0 {
+        if active[1] & (1 << (52 - 32)) != 0 {
             __irq_handler__GpioBank3()
         }
-        if active[1] & (1 << 53 - 32) != 0 {
+        if active[1] & (1 << (53 - 32)) != 0 {
             __irq_handler__I2c()
         }
-        if active[1] & (1 << 54 - 32) != 0 {
+        if active[1] & (1 << (54 - 32)) != 0 {
             __irq_handler__Spi()
         }
-        if active[1] & (1 << 55 - 32) != 0 {
+        if active[1] & (1 << (55 - 32)) != 0 {
             __irq_handler__I2sPcm()
         }
-        if active[1] & (1 << 56 - 32) != 0 {
+        if active[1] & (1 << (56 - 32)) != 0 {
             __irq_handler__Sdio()
         }
-        if active[1] & (1 << 57 - 32) != 0 {
+        if active[1] & (1 << (57 - 32)) != 0 {
             __irq_handler__Pl011()
         }
     }
@@ -344,8 +343,6 @@ unsafe fn __interrupt_h(_core: u32) {
     IRQ_MANAGER.use_for(|mgr| {
         // check wheter the interrupt in a pending register really has been activiated
         let pendings: [u32; 3] = interface::get_pending_irqs();
-        //info!("irq raised. pending: {:X}, {:X}, {:X}", pendings[0], pendings[1], pendings[2]);
-
         // build a list of interrupt id's based on the bit's set in the 3 irq enable banks
         let active_irqs: Vec<u8> = (0..).zip(&pendings).fold(Vec::new(), |acc, p| {
             acc.into_iter()
