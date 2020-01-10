@@ -208,9 +208,9 @@ unsafe fn __exception_handler_default(
 /// Entry point for interrupt handling. This function dispatches the detected interrupt to the
 /// elsewhere implemented dedicated handlers. Those handlers should be tagged with the ``IrqHandler``
 /// attribute
-#[allow(dead_code)]
+#[allow(dead_code, clippy::identity_op, clippy::eq_op)]
 fn interrupt_handler() {
-    // first globally store that we are inside an interrupt handler
+    // globally store that we are inside an interrupt handler
     entering_interrupt_handler();
 
     // now retrieve the pending interrupts
@@ -224,6 +224,13 @@ fn interrupt_handler() {
             mgr.enabled[2] & pendings[2],
         ]
     });
+
+    // fast track leaving if no interrupt source has been activated for handling
+    if active[0] == 0 && active[1] == 0 && active[2] == 0 {
+        // when we are done store that we are leaving an interrupt handler
+        leaving_interrupt_handler();
+        return;
+    }
 
     // now that we have the active interrupts we can dispatch to the dedicated handlers
     if active[0] != 0 {

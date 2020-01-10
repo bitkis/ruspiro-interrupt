@@ -4,7 +4,7 @@
  * Author: André Borrmann
  * License: Apache License 2.0
  **********************************************************************************************************************/
-#![doc(html_root_url = "https://docs.rs/ruspiro-interrupt-core/0.3.0")]
+#![doc(html_root_url = "https://docs.rs/ruspiro-interrupt-core/0.3.1")]
 #![no_std]
 #![feature(asm)]
 
@@ -18,24 +18,24 @@ use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 // simple state to track whether we are currently running inside an IRQ
 // this is usually set and cleared by the interrupt handler [interrupt_handler]
-static IRQ_HANDLER_ACTIVE: AtomicBool = AtomicBool::new(false);
+pub static IRQ_HANDLER_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 // last interrupt mask bits before globally disabling interrupts
 // TODO: This stores the irq mask globally cross cores. If different cores would like to store
 //       a different state this is not reflected at the moment. For the time beeing it is assumed
 //       interrupts are only taken on main core and interrupt routing is setup accordingly
-static IRQ_MASK: AtomicU32 = AtomicU32::new(0);
+pub static IRQ_MASK: AtomicU32 = AtomicU32::new(0xF);
 
 /// Function used to store a cross core global flag that an interrupt is currently
 /// handled
 pub fn entering_interrupt_handler() {
-    IRQ_HANDLER_ACTIVE.store(true, Ordering::SeqCst);
+    IRQ_HANDLER_ACTIVE.store(true, Ordering::Release);
 }
 
 /// Function used to clear a cross core global flag that no interrupt is currently
 /// handled
 pub fn leaving_interrupt_handler() {
-    IRQ_HANDLER_ACTIVE.store(false, Ordering::SeqCst);
+    IRQ_HANDLER_ACTIVE.store(false, Ordering::Release);
 }
 
 /// globally enabling interrupts (IRQ/FIQ) to be triggered
@@ -46,18 +46,25 @@ pub fn enable_interrupts() {
 
 /// globally disabling interrupts (IRQ/FIQ) from beeing triggered
 pub fn disable_interrupts() {
-    // in aarch64 mode the interrupts are disabled by default on entering
+    // in aarch64 mode the interrupts are disabled by default on entering the IRQ exception
     // no need to disable
     #[cfg(target_arch = "aarch64")]
     {
-        if IRQ_HANDLER_ACTIVE.load(Ordering::SeqCst) {
+        if IRQ_HANDLER_ACTIVE.load(Ordering::Acquire) {
             return;
         }
     }
-    let mask = get_interrupt_mask();
-    IRQ_MASK.store(mask, Ordering::SeqCst);
+    let last_mask = get_interrupt_mask();
     disable_irq();
     disable_fiq();
+    let current_mask = get_interrupt_mask();
+    // We might disable after we have disabled after an enabled state
+    // so just storing the last value might override the beginning enabled state
+    // So if the last mask differs from the current one store the last one
+    // other wise keep the stored value. 
+    if last_mask != current_mask {
+        IRQ_MASK.store(last_mask, Ordering::SeqCst);
+    }
 }
 
 /// globally re-enabling interrupts (IRQ/FIQ) to be triggered. This is done based on the global state
@@ -67,7 +74,7 @@ pub fn re_enable_interrupts() {
     // no need to re-enable when running inside interrupt handler
     #[cfg(target_arch = "aarch64")]
     {
-        if IRQ_HANDLER_ACTIVE.load(Ordering::SeqCst) {
+        if IRQ_HANDLER_ACTIVE.load(Ordering::Acquire) {
             return;
         }
     }
@@ -77,7 +84,7 @@ pub fn re_enable_interrupts() {
 }
 
 /// globally enable ``IRQ`` interrupts to be triggered
-pub fn enable_irq() {
+fn enable_irq() {
     #[cfg(target_arch = "arm")]
     unsafe {
         asm!(
@@ -95,7 +102,7 @@ pub fn enable_irq() {
 }
 
 /// globally enable ``FIQ`` interrupts to be triggered
-pub fn enable_fiq() {
+fn enable_fiq() {
     #[cfg(target_arch = "arm")]
     unsafe {
         asm!(
@@ -115,7 +122,7 @@ pub fn enable_fiq() {
 /// globally disable ``IRQ`` interrupts from beeing triggered. This function stores the state of the current enabling/disabling
 /// of interrupts. If ``disable`` is called multiple times after each other this will than ultimately store "disabled" as
 /// last state. In this case a previous enabled state (before the multiple calls) is not able to recover with a call to [``re_enable_irq``].
-pub fn disable_irq() {
+fn disable_irq() {
     // remember the last IRQ state
     //let state = get_interrupt_state();
 
@@ -127,16 +134,12 @@ pub fn disable_irq() {
     unsafe {
         asm!("msr daifset, #2")
     };
-
-    // store the last interrupt state after interrupts have been
-    // disabled to ensure interrupt free atomic operation
-    //IRQ_STATE.store(state != 0, Ordering::SeqCst);
 }
 
 /// globally disable ``FIQ`` interrupts from beeing triggered. This function stores the state of the current enabling/disabling
 /// of interrupts. If ``disable`` is called multiple times after each other this will than ultimately store "disabled" as
 /// last state. In this case a previous enabled state (before the multiple calls) is not able to recover with a call to [``re_enable_fiq``].
-pub fn disable_fiq() {
+fn disable_fiq() {
     // remember the last FIQ state
     //let state = get_fault_state();
 
@@ -148,13 +151,9 @@ pub fn disable_fiq() {
     unsafe {
         asm!("msr daifset, #1")
     };
-
-    // store the last interrupt state after interrupts have been
-    // disabled to ensure interrupt free atomic operation
-    //FAULT_STATE.store(state != 0, Ordering::SeqCst);
 }
 
-fn get_interrupt_mask() -> u32 {
+pub fn get_interrupt_mask() -> u32 {
     #[cfg(target_arch = "arm")]
     unsafe {
         let state: u32;
