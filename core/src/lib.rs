@@ -14,7 +14,7 @@
 //! [``ruspiro-interrupt``](https://crates.io/crates/ruspiro-interrupt) crate to remove circular dependencies between
 //! the interrupt crate and others (e.g. ``ruspiro-singleton``).
 
-use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU16, Ordering};
 
 // simple state to track whether we are currently running inside an IRQ
 // this is usually set and cleared by the interrupt handler [interrupt_handler]
@@ -25,6 +25,7 @@ pub static IRQ_HANDLER_ACTIVE: AtomicBool = AtomicBool::new(false);
 //       a different state this is not reflected at the moment. For the time beeing it is assumed
 //       interrupts are only taken on main core and interrupt routing is setup accordingly
 pub static IRQ_MASK: AtomicU32 = AtomicU32::new(0xF);
+static IRQ_DISABLE_COUNT: AtomicU16 = AtomicU16::new(0);
 
 /// Function used to store a cross core global flag that an interrupt is currently
 /// handled
@@ -54,17 +55,19 @@ pub fn disable_interrupts() {
             return;
         }
     }
-    let last_mask = get_interrupt_mask();
+    //let last_mask = get_interrupt_mask();
     disable_irq();
     disable_fiq();
-    let current_mask = get_interrupt_mask();
+    // increase the disable counter
+    IRQ_DISABLE_COUNT.fetch_add(1, Ordering::SeqCst);
+    //let current_mask = get_interrupt_mask();
     // We might disable after we have disabled after an enabled state
     // so just storing the last value might override the beginning enabled state
     // So if the last mask differs from the current one store the last one
     // other wise keep the stored value. 
-    if last_mask != current_mask {
-        IRQ_MASK.store(last_mask, Ordering::SeqCst);
-    }
+    //if last_mask != current_mask {
+    //    IRQ_MASK.store(last_mask, Ordering::SeqCst);
+    //}
 }
 
 /// globally re-enabling interrupts (IRQ/FIQ) to be triggered. This is done based on the global state
@@ -78,9 +81,16 @@ pub fn re_enable_interrupts() {
             return;
         }
     }
-    let mask = IRQ_MASK.load(Ordering::SeqCst);
-    if (mask & 0x2) == 0 { enable_irq() };
-    if (mask & 0x1) == 0 { enable_fiq() };
+
+    if IRQ_DISABLE_COUNT.fetch_sub(1, Ordering::SeqCst) == 1 {
+        // this was the last re-enabling in the disable chain.. so enable the interrupts
+        enable_irq();
+        enable_fiq();
+    }
+    //let mask = IRQ_MASK.load(Ordering::SeqCst);
+    //unsafe { asm!("MSR DAIF, $0"::"r"(mask)::"volatile"); };
+    /*if (mask & 0x2) == 0 { enable_irq() };
+    if (mask & 0x1) == 0 { enable_fiq() };*/
 }
 
 /// globally enable ``IRQ`` interrupts to be triggered

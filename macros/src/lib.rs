@@ -136,6 +136,7 @@ pub fn IrqHandler(attr: TokenStream, item: TokenStream) -> TokenStream {
     let irq_name_s = format!("__irq_handler__{}", irq_func_suffix);
     quote!(
         // use a fixed export name to ensure the same irq handler is not implemented twice
+        #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
         #[allow(non_snake_case)]
         #[export_name = #irq_name_s]
         #(#attrs)*
